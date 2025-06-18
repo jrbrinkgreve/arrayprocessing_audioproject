@@ -7,12 +7,21 @@ load("impulse_responses.mat")  %luckily Fs is the same for all samples!
 [speech_2, ~] = audioread("clean_speech_2.wav");
 
 
+
+
 %choose whether to use clean sample 1 or 2:
 speech_sample = speech_1;  %or speech_2
 
 
+%normalize
+speech_sample = speech_sample / max(abs(speech_sample));
+noise_babble = noise_babble / max(abs(noise_babble));
+noise_speech_shaped = noise_speech_shaped / max(abs(noise_speech_shaped));
+noise_art = 0.05 * noise_art / max(abs(noise_art)); %as max == 0.01, this is really rough.
 
-snr = -20;
+
+
+snr = 0;
 
 
 
@@ -149,8 +158,8 @@ end
 
 
 
-
 %{
+
 disp('Prewhitening...')
 parfor j=1:nfft
     Rn_half = sqrtm(Rn_all(:,:,j));
@@ -160,15 +169,32 @@ parfor j=1:nfft
     K = R_invhalf * Rx * R_invhalf;
 
     [U_k, sigma_k, V_k] = eig(K);
-    atf_mat(:, j) = U_k(:,1) / (U_k(1,1));  %make it relative atf
+    eigvals = diag(sigma_k);
+    [~, sort_idx] = sort(real(eigvals), 'descend');
+    V_k_sorted = V_k(:, sort_idx);
+    
+    atf_mat(:, j) = V_k_sorted(:,1) / V_k_sorted(1,1);  %RTF
 end
+
 %}
 
+disp('GEVD...')
+parfor j = 1:nfft
+    [U_k, sigma_k, V_k] = eig(Rx_all(:,:,j), Rn_all(:,:,j));
+    eigvals = diag(sigma_k);
+    [~, sort_idx] = sort(real(eigvals), 'descend');
+    V_k_sorted = V_k(:, sort_idx);
+    
+    atf_mat(:, j) = V_k_sorted(:,1) / V_k_sorted(1,1);  %RTF
+end
+
+
+%{
 parfor j=1:nfft
     [U_k, sigma_k, V_k] = eig(Rn_all(:,:,j), Rx_all(:,:,j));
     atf_mat(:, j) = U_k(:,1) / (U_k(1,1));  %make it relative atf
 end
-
+%}
 
 
 %MVDR Beamformer application
@@ -248,7 +274,7 @@ s_rec = s_rec / max(abs(s_rec));
 
 
 %sound(X(1,:),Fs)
-sound(s_rec,Fs)
+%sound(s_rec(1:1e5),Fs)
 
 
 
@@ -273,16 +299,22 @@ s = s / max(abs(s));
 % intrusive speech quality measure from: Speech Quality Assessment - Grancharov & kleijn
 e = zeros(1,length(s_rec));
 for i = 1:length(s_rec)
-    e(i) = s(i)-s_rec(i);
+    e(i) = s(i)-s_rec(1,i);
 end
-
 
 snrerror = 10*log((s'*s)/(e*e'))
 
 
 
 
+%stoi index:
+
+length_difference = abs(length(s_rec(1,:)) - length(speech_1));
+
+stoi_score = stoi(s_rec(1,:), speech_1(length_difference+1:end), Fs) %for best alignment
 
 
 
+
+%
 
